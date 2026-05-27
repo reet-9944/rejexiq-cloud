@@ -1,0 +1,11 @@
+node_modules/
+backend/node_modules/
+dist/
+.git/
+.vscode/
+.env
+.env.example
+*.log
+backend/*.log
+backend/uploads/
+backend/resumes/

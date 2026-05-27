@@ -6,8 +6,13 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const cors = require("cors");
 const multer = require("multer");
+const { Storage } = require("@google-cloud/storage");
 
 try { require("dotenv").config({ path: path.join(__dirname, ".env") }); } catch (_) {}
+
+const gcsBucketName = process.env.GCS_BUCKET_NAME;
+const gcs = gcsBucketName ? new Storage() : null;
+const bucket = gcs ? gcs.bucket(gcsBucketName) : null;
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -192,19 +197,38 @@ app.get("/api/market-demand", authMiddleware, (req, res) => {
   res.json({ data: marketData, lastUpdated: new Date().toISOString() });
 });
 
-app.post("/api/resume-data", authMiddleware, (req, res) => {
-  const { resumeData } = req.body;
-  if (!resumeData) return res.status(400).json({ error: "Resume data required" });
-  const filename = `resume_${req.user.id}_${Date.now()}.json`;
-  const filePath = path.join(__dirname, "resumes", filename);
-  if (!fs.existsSync(path.join(__dirname, "resumes"))) {
-    fs.mkdirSync(path.join(__dirname, "resumes"), { recursive: true });
+app.post("/api/resume-data", authMiddleware, async (req, res, next) => {
+  try {
+    const { resumeData } = req.body;
+    if (!resumeData) return res.status(400).json({ error: "Resume data required" });
+    const filename = `resume_${req.user.id}_${Date.now()}.json`;
+
+    if (bucket) {
+      const blob = bucket.file(`resumes/${filename}`);
+      const blobStream = blob.createWriteStream({
+        resumable: false,
+        contentType: "application/json",
+      });
+      blobStream.on("error", (err) => next(err));
+      blobStream.on("finish", () => {
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+        res.json({ message: "Resume saved to GCS", filename, path: publicUrl });
+      });
+      blobStream.end(JSON.stringify(resumeData, null, 2));
+    } else {
+      const filePath = path.join(__dirname, "resumes", filename);
+      if (!fs.existsSync(path.join(__dirname, "resumes"))) {
+        fs.mkdirSync(path.join(__dirname, "resumes"), { recursive: true });
+      }
+      const writeStream = fs.createWriteStream(filePath);
+      writeStream.write(JSON.stringify(resumeData, null, 2));
+      writeStream.end();
+      writeStream.on("finish", () => res.json({ message: "Resume saved", filename, path: filePath }));
+      writeStream.on("error", () => res.status(500).json({ error: "Failed to save resume" }));
+    }
+  } catch (err) {
+    next(err);
   }
-  const writeStream = fs.createWriteStream(filePath);
-  writeStream.write(JSON.stringify(resumeData, null, 2));
-  writeStream.end();
-  writeStream.on("finish", () => res.json({ message: "Resume saved", filename, path: filePath }));
-  writeStream.on("error", () => res.status(500).json({ error: "Failed to save resume" }));
 });
 
 app.get("/api/download-log", authMiddleware, (req, res) => {
@@ -250,7 +274,7 @@ app.post("/api/parse-resume", async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-const storage = multer.diskStorage({
+const diskStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = path.join(__dirname, "uploads");
     if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -261,12 +285,37 @@ const storage = multer.diskStorage({
     cb(null, uniqueSuffix + "-" + file.originalname.replace(/\s+/g, "_"));
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage: bucket ? multer.memoryStorage() : diskStorage
+});
 
-app.post("/api/upload", newAuthMiddleware, upload.single("file"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-  const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
-  res.json({ message: "File uploaded successfully", fileUrl, fileName: req.file.originalname, fileType: req.file.mimetype });
+app.post("/api/upload", newAuthMiddleware, upload.single("file"), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+
+    if (bucket) {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      const filename = uniqueSuffix + "-" + req.file.originalname.replace(/\s+/g, "_");
+      const blob = bucket.file(filename);
+      const blobStream = blob.createWriteStream({
+        resumable: false,
+        contentType: req.file.mimetype,
+      });
+
+      blobStream.on("error", (err) => next(err));
+      blobStream.on("finish", () => {
+        const publicUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+        res.json({ message: "File uploaded to GCS successfully", fileUrl: publicUrl, fileName: req.file.originalname, fileType: req.file.mimetype });
+      });
+
+      blobStream.end(req.file.buffer);
+    } else {
+      const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${req.file.filename}`;
+      res.json({ message: "File uploaded successfully", fileUrl, fileName: req.file.originalname, fileType: req.file.mimetype });
+    }
+  } catch (err) {
+    next(err);
+  }
 });
 
 app.use((req, res) => {
