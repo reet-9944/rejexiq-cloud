@@ -9,13 +9,13 @@ import {
 } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey:            "AIzaSyDFPAHHTZX98eLm7MiV8Jd0B7otUHpolQQ",
-  authDomain:        "rejxiq.firebaseapp.com",
-  projectId:         "rejxiq",
-  storageBucket:     "rejxiq.firebasestorage.app",
-  messagingSenderId: "58710090518",
-  appId:             "1:58710090518:web:400be3d6c95e063552a637",
-  measurementId:     "G-GFRCJRTJFH",
+  apiKey: "AIzaSyDjL2RBXUZLiVKXwstFGMyf3HLv_FT-iaE",
+  authDomain: "thermal-advice-497619-i3.firebaseapp.com",
+  projectId: "thermal-advice-497619-i3",
+  storageBucket: "thermal-advice-497619-i3.firebasestorage.app",
+  messagingSenderId: "640135908002",
+  appId: "1:640135908002:web:49800e08572607f80665fb",
+  measurementId: "G-51B3E2B6T7"
 };
 
 const app      = initializeApp(firebaseConfig);
